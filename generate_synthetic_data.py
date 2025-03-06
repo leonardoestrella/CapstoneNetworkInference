@@ -35,6 +35,9 @@ def compute_derivative(phi, w, xi, eta, r):
     # Broadcasting: delta[..., None] has shape (N, N, 1) and modes is (r,) -> result is (N, N, r)
     sin_terms = np.sin(delta[..., None] * modes)
     cos_terms = np.cos(delta[..., None] * modes)
+
+    # The functions are defined over an interval of 2 pi length, so the L = pi inside the
+    # sine and cosine terms
     
     # Elementwise multiply by the coefficients and sum over the Fourier modes (axis 2)
     interaction_terms = (xi * sin_terms + eta * cos_terms).sum(axis=2)  # Shape: (N, N)
@@ -130,22 +133,86 @@ def simulate_oscillators(N=10, r=3, T=20.0, dt=0.01, settings=None):
 
     return t_values, phi_history
 
-# Run the simulation and plot the results
-if __name__ == '__main__':
 
+def data_for_inference(t_values, phi_history):
+    """
+    Prepares the synthetic data for inference. It returns the 
+    data using the backward and one-sided numerical differentiation
+
+    Parameters:
+        t_values : ndarray
+            Array of time values. (shape: [num_steps])
+        phi_history : ndarray
+            History of oscillator phases (shape: [num_steps, N]).
+    
+    Returns:
+        delta_t_values : ndarray
+            Array of time differences (shape: [num_steps-1])
+        back_data : ndarray
+            Numerical derivative using backward method (shape: [num_steps-1, N])
+        one_sided_data : ndarray 
+            Numerical derivative using one-sided method (shape: [num_steps-2, N])
+    """
+
+    delta_t = t_values[1:] - t_values[:-1]
+    back_data = (phi_history[1:,:] - phi_history[:-1,:]) / delta_t[:, None]
+    one_sided_data = (3*phi_history[2:] - 4 * phi_history[1:-1] + phi_history[:-2]) / (2*delta_t[1:, None])
+    return delta_t, back_data, one_sided_data
+
+
+def run_simulation():
+    """
+    Run the simulation using the settings defined in generate_settings.
+
+    Returns:
+        t (ndarray): Array of time points.
+        phi_history (ndarray): History of oscillator phases.
+    """
     r = generate_settings.r
-    #phi, w, xi, eta = generate_settings.settings
     settings = generate_settings.settings
     N, T, dt = generate_settings.N, generate_settings.T, generate_settings.dt
 
+    # Call simulate_oscillators with the appropriate settings
+    t, phi_history = simulate_oscillators(N=len(settings[0]), r=r, T=T, dt=dt, settings=settings)
+    return t, phi_history
 
-    t, phi_history = simulate_oscillators(N=len(settings[0]), r=r, T=T, dt=dt, settings = settings)
-    
+def plot_simulation(t, phi_history):
+    """
+    Plot the simulation results.
+
+    Parameters:
+        t (ndarray): Array of time points.
+        phi_history (ndarray): History of oscillator phases.
+    """
     plt.figure(figsize=(10, 6))
     for i in range(phi_history.shape[1]):
         plt.plot(t, phi_history[:, i], label=f'Oscillator {i+1}')
     plt.xlabel(r'Time ($t$, seconds)')
-    plt.ylabel(r'Phase ($\phi$, radians) ')
+    plt.ylabel(r'Phase ($\phi$, radians)')
     plt.title('Synthetic Oscillatory Dynamics')
     plt.legend()
     plt.show()
+
+# if __name__ == '__main__':
+#     t, phi_history = run_simulation()
+#     plot_simulation(t, phi_history)
+
+# # Run the simulation and plot the results
+# if __name__ == '__main__':
+
+#     r = generate_settings.r
+#     #phi, w, xi, eta = generate_settings.settings
+#     settings = generate_settings.settings
+#     N, T, dt = generate_settings.N, generate_settings.T, generate_settings.dt
+
+
+#     t, phi_history = simulate_oscillators(N=len(settings[0]), r=r, T=T, dt=dt, settings = settings)
+    
+#     plt.figure(figsize=(10, 6))
+#     for i in range(phi_history.shape[1]):
+#         plt.plot(t, phi_history[:, i], label=f'Oscillator {i+1}')
+#     plt.xlabel(r'Time ($t$, seconds)')
+#     plt.ylabel(r'Phase ($\phi$, radians) ')
+#     plt.title('Synthetic Oscillatory Dynamics')
+#     plt.legend()
+#     plt.show()

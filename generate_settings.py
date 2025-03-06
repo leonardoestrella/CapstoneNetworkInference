@@ -3,7 +3,9 @@ import random as rd
 
 #rd.seed(0)
 
-np.random.seed(0)
+np.random.seed(0) # Keep the seed constant, so I can
+# use it while coding
+# I should be generating sparsity here too
 
 N = 3
 phi = np.random.rand(N) * 2 * np.pi # initial values
