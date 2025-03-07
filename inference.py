@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 def infer_node_dynamics(phi_history, t, r, node_idx, method='backward'):
     """
@@ -23,11 +24,8 @@ def infer_node_dynamics(phi_history, t, r, node_idx, method='backward'):
 
     Returns
     -------
-    x_sol : ndarray, shape (1 + r + r^2*(N-1),)
-        The least-squares solution vector. The first (1 + r) entries correspond
-        to the “self” dynamics coefficients (constant term + r Fourier modes).
-        The remaining r^2*(N-1) entries are the pairwise interaction coefficients
-        for all other oscillators j != node_idx.
+    x_sol : ndarray, shape (1 + rN^2,)
+        The least-squares solution vector. The first element is the constant term
     residuals : ndarray
         Sum of squared residuals of the least-squares solution. 
         (Empty if the solution is a perfect fit or T <= # parameters.)
@@ -77,63 +75,128 @@ def infer_node_dynamics(phi_history, t, r, node_idx, method='backward'):
 
     num_points = y_data.shape[0]
     N = phi_used.shape[1]
+    fourier_bases = np.arange(1,r+1)
 
     # -------------------------------------------------------------------------
-    # 2) Build expansions for the “self” node (i = node_idx)
+    # 2) Build the design matrix
     # -------------------------------------------------------------------------
     # a0 / sqrt(2π)
-    A_const = np.ones((num_points, 1)) / np.sqrt(2.0 * np.pi)
+    A = np.ones((num_points, 1)) / np.sqrt(2.0 * np.pi)
 
-    # For k=1..r, we have sin(k phi_i) + cos(k phi_i), scaled by 1/sqrt(π)
-    modes = np.arange(1, r + 1)  # array([1, 2, ..., r])
-    mat_i = np.outer(phi_used[:, node_idx], modes)  # shape (num_points, r)
-    sin_i = np.sin(mat_i)
-    cos_i = np.cos(mat_i)
-    self_expansions = (sin_i + cos_i) / np.sqrt(np.pi)  # shape (num_points, r)
+    for mode1 in fourier_bases: # k
+        for mode2 in fourier_bases: # l
+            self_mode = phi_used[:,node_idx] * mode1
+            P_kdx = (np.sin(self_mode) + np.cos(self_mode)) / np.sqrt(np.pi)    # Shape (t,)
+            data_mode = phi_used * mode2
+            P_ldx = (np.sin(data_mode) + np.cos(data_mode)) / np.sqrt(np.pi)    # Shape (t, N)
 
-    # Combine into one partial design matrix for self: shape (num_points, 1 + r)
-    A_self = np.hstack([A_const, self_expansions])
-
-    # -------------------------------------------------------------------------
-    # 3) Build expansions for each “other” node (j != i)
-    #    bracket: [sin(l phi_j) + cos(l phi_j)] for l = 1..r
-    # -------------------------------------------------------------------------
-    mask_others = (np.arange(N) != node_idx)  
-    phi_others = phi_used[:, mask_others]  # shape (num_points, N-1)
-
-    # Expand in 3D for sin & cos
-    mat_others_3d = phi_others[..., None] * modes  # shape (num_points, (N-1), r)
-    sin_others_3d = np.sin(mat_others_3d)
-    cos_others_3d = np.cos(mat_others_3d)
-
-    expansions_others_3d = (sin_others_3d + cos_others_3d) / np.sqrt(np.pi)
-    # Flatten across all j != i
-    # shape from (num_points, (N-1), r) -> (num_points, (N-1)*r)
-    expansions_others_2d = expansions_others_3d.reshape(num_points, -1)
+            O_ij = P_kdx[:, np.newaxis] * P_ldx
+            A = np.hstack((A,O_ij))
 
     # -------------------------------------------------------------------------
-    # 4) Form product of expansions_i with expansions_others => (num_points, r^2*(N-1))
-    #    This is the pairwise term: [self_expansion_k * other_expansion_(k')]
-    # -------------------------------------------------------------------------
-    self_3d = self_expansions.reshape(num_points, r, 1)           # (num_points, r, 1)
-    others_3d = expansions_others_2d.reshape(num_points, 1, r*(N-1))
-    product_3d = self_3d * others_3d  # shape (num_points, r, r*(N-1))
-
-    # Transpose so the middle axis lines up the “r*(N-1)” dimension nicely
-    product_3d_alt = product_3d.transpose(0, 2, 1)  # (num_points, r*(N-1), r)
-
-    # Flatten the last two dimensions => (num_points, r^2*(N-1))
-    product_2d = product_3d_alt.reshape(num_points, -1)
-
-    # -------------------------------------------------------------------------
-    # 5) Combine design matrices: A = [ A_self | product_2d ]
-    #    shape => (num_points, 1 + r + r^2*(N-1))
-    # -------------------------------------------------------------------------
-    A = np.hstack([A_self, product_2d])
-
-    # -------------------------------------------------------------------------
-    # 6) Solve for coefficients in least squares sense
-    # -------------------------------------------------------------------------
+    # 3) Solve for coefficients in least squares sense
+    # from A with shape (t, rN**2 + 1 )
+    # ------------------------------------------------------------------------
     x_sol, residuals, rank, svals = np.linalg.lstsq(A, y_data, rcond=None)
     
+    # wrap the solutions, as they should be in the interval [0,2 pi] by how
+    # we defined the range in which data are
+
+    x_sol = x_sol % (2*np.pi) # sus, to be honest
+
     return x_sol, residuals
+
+def infer_all_nodes(phi_vals,t_vals,r,N, method = 'backward'):
+    """
+    Infers the coupling strength of all the nodes in the network
+
+    Parameters:
+    ----------------
+        phi_vals: array 
+            Data to make the inference from
+        t_vals: array
+            time steps
+        r: int
+            Number of Fourier modes
+        N: int
+            Number of nodes to infer
+        method: str
+            'backward' or 'one_sided'
+    Output:
+    ----------------
+        ndarray (shape (N,)), ndarray (shape (N,N-1))
+            The first array contains the inferred natural frequencies
+            and the second array contains the inferred coupling strenghts
+    """
+    
+
+    inferred_couplings = np.zeros((N,N-1))
+    inferred_natural = np.zeros(N)
+
+    for node_idx in range(N):
+        inferred_coefficient, error = infer_node_dynamics(phi_vals, t_vals, r, node_idx, method = method)
+        natural, others = coeff_to_coupling_node(inferred_coefficient, node_idx, r, N)
+        inferred_natural[node_idx] = natural
+        inferred_couplings[node_idx,:] = others
+
+    return inferred_natural, inferred_couplings
+
+def coeff_to_coupling_node(inferred_coefficient,node_idx, r, N):
+    """
+    Convert the coefficients to coupling strenght of the fourier modes
+
+    Parameters:
+    ----------------
+        inferred_coefficient: ndarray (shape: (r**2 * N + 1, ))
+            inferred coefficients of the z_i
+        node_idx: int
+            index of the node to which the coefficients correspond (0 <= node_idx < N)
+        r: int
+            number of Fourier modes
+        N: int
+            Number of nodes in the network
+    Output:
+    ----------------
+        float, ndarray
+            The first float is the natural frequency as the constant term
+            The second ndarray contains the coupling strengths of the fourier modes
+            and has a shape(N-1) where its i-th element is the coupling strenght between
+            node node_idx and i. 
+        
+    """
+    constant_coefficient = inferred_coefficient[0]
+
+    ordered_coefficient = inferred_coefficient[1:].reshape(r,r,N)
+    # Each row i are the coefficients associated with the P_ij vector
+    # each element ordered_coefficient[k,l,j] = b_{ij}^kl
+    # for j = 1,2,3... r. 
+    squared_coefficient = ordered_coefficient**2
+    # The coupling stenght is a_ij = sum (b_{ij}^kl ** 2) for the kls
+
+    coupling_strength = np.sqrt(np.sum(squared_coefficient, axis = (0,1))) 
+    self_coupling_strenght = np.sqrt(coupling_strength[node_idx]**2+ constant_coefficient**2)
+    return self_coupling_strenght, np.delete(coupling_strength, node_idx)
+
+def plot_natural_frequencies(natural_frequencies,inferred_frequencies):
+    """
+    Plots the natural frequencies and the inferred frequencies
+    Parameters:
+        natural_frequencies: array (shape (N,)) of the true natural frequencies
+        inferred_frequencies: array (shape (N,)) of the inferred frequencies
+    """
+    plt.scatter(natural_frequencies,inferred_frequencies, marker = 'o', facecolor = 'none', edgecolors='red')
+    plt.xlabel("True natural frequency")
+    plt.ylabel("Estimated natural frequency")
+    plt.show();
+
+def plot_coupling_strengths(coupling_strengths, inferred_coupling_strengths):
+    """
+    Plots the coupling strengths and the inferred coupling strengths
+    Parameters:
+        coupling_strengths: array (shape (N,N-1)) of the true coupling strengths
+        inferred_coupling_strengths: array (shape (N,N-1)) of the inferred coupling strengths
+    """
+    plt.scatter(coupling_strengths.flatten(), inferred_coupling_strengths.flatten(), marker = 'o', facecolor = 'none', edgecolors='red')
+    plt.xlabel("True Coupling Strength")
+    plt.ylabel("Estimated Coupling Strength")
+    plt.show();

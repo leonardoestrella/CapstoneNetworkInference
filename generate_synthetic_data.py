@@ -53,9 +53,28 @@ def compute_derivative(phi, w, xi, eta, r):
 
     return phi_dot
 
-def wrap_to_2pi(phi):
-    """Wrap angles to the interval [0, 2pi]."""
-    return phi % (2 * np.pi)
+def wrap_to_value(x,left_value,right_value):
+    """
+    Wraps the values to a value in a given interval [left_value, right_value).
+
+    Parmeters:
+        x: int, float, nparray
+            values to be wrapped
+        left_value: int, float
+            left endpoint of the interval to wrap the value
+        right_value: int, float
+            right endpoint of the interval to wrap the value
+
+    Returns:
+        array
+        Wrapped values
+    """
+    if left_value >= right_value:
+        raise ValueError("left_value must be less than right_value")
+
+    interval_size = right_value - left_value
+    return left_value + (x - left_value) % interval_size
+
 def rk2_step(phi, dt, w, xi, eta, r):
     """
     Perform a single RK2 integration step using
@@ -75,9 +94,9 @@ def rk2_step(phi, dt, w, xi, eta, r):
     k1 = compute_derivative(phi, w, xi, eta, r)
     k2 = compute_derivative(phi + dt/2 * k1, w, xi, eta, r)
     new_phi = phi + dt * k2
-    return wrap_to_2pi(new_phi)
+    return wrap_to_value(new_phi, -np.pi, np.pi)
 
-def simulate_oscillators(N=10, r=3, T=20.0, dt=0.01, settings=None):
+def simulate_oscillators(N, r, T, dt, settings=None):
     """
     Simulate the dynamics of N oscillators over time T with time step dt.
     
@@ -159,21 +178,89 @@ def data_for_inference(t_values, phi_history):
     one_sided_data = (3*phi_history[2:] - 4 * phi_history[1:-1] + phi_history[:-2]) / (2*delta_t[1:, None])
     return delta_t, back_data, one_sided_data
 
+def calculate_coupling_strength_per_node(w_i, xi_i, eta_i, node_idx):
+    """
+    Calculate and return the coupling strenght for the given settings
+    for all the nodes in the model
+    Parameters:
+        w_i : float
+            Natural frequency of the node i
+        xi_i : ndarray (shape = (N,r))
+            Sine coefficients for the node i
+        eta_i : ndarray (shape = (N,r))
+            Cosine coefficients for the node i
+    Returns:
+        array (shape (r+1,))
+            Coupling strenghts for the given nodes i
+            the first element is the natural frequency w_i,
+            and each of the following are for the fourier
+            modes
+    """
+    #w,xi,eta = generate_settings.settings
+    coupling_self = np.array([np.sqrt(w_i**2)])
+    coupling_others = np.sqrt(np.sum(xi_i**2 + eta_i**2, axis = 1))
+    coupling_strength = np.concatenate([coupling_self, coupling_others])
+    return coupling_strength
 
-def run_simulation():
+def calculate_coupling_strength():
+    """
+    Calculate and return the coupling strenght for all the nodes in the model
+    Parameters:
+        w : ndarray (shape = (N,))
+            Natural frequencies of the nodes
+        x : ndarray (shape = (N,N,r))
+            Sine coefficients for the nodes
+        eta : ndarray (shape = (N,N,r))
+            Cosine coefficients for the nodes
+    Returns:
+        array (shape (N,r+1))
+            Coupling strenghts for each node i
+            the first element is the natural frequency w_i,
+            and each of the following are for the fourier
+            modes
+    """
+    phi, w,x,eta = generate_settings.settings
+    coupling_strength = np.array([calculate_coupling_strength_per_node(w_i, xi_i, eta_i, node_idx) for node_idx, (w_i, xi_i, eta_i) in enumerate(zip(w, x, eta))])
+    return coupling_strength
+
+def prepare_comparison_trues():
+    """
+    Prepares the true dynamcis for comparison with the inferred values
+
+    Parameters:
+    Returns:
+        array (shape (N,)), array (shape(N,N-1))
+        The first array contains the true natural frequencies
+        and the second the true coupling strengths
+    """
+    true_dynamics = calculate_coupling_strength()
+    N = true_dynamics.shape[0]
+    true_couplings = np.zeros((N,N-1))
+    true_naturals = true_dynamics[:,0]
+    for node_idx in range(N):
+        true_couplings[node_idx,:] = np.delete(true_dynamics[node_idx,1:],node_idx)
+
+    return true_naturals, true_couplings
+def run_simulation(plot_data = False):
     """
     Run the simulation using the settings defined in generate_settings.
+
+    Parameters:
+        plot_data: bool (optional)
+        If True, plots the simulation results. Defaults to False
 
     Returns:
         t (ndarray): Array of time points.
         phi_history (ndarray): History of oscillator phases.
     """
-    r = generate_settings.r
+    r_synth = generate_settings.r_synth
     settings = generate_settings.settings
     N, T, dt = generate_settings.N, generate_settings.T, generate_settings.dt
 
     # Call simulate_oscillators with the appropriate settings
-    t, phi_history = simulate_oscillators(N=len(settings[0]), r=r, T=T, dt=dt, settings=settings)
+    t, phi_history = simulate_oscillators(N=len(settings[0]), r=r_synth, T=T, dt=dt, settings=settings)
+    if plot_data:
+        plot_simulation(t, phi_history)
     return t, phi_history
 
 def plot_simulation(t, phi_history):
@@ -186,16 +273,17 @@ def plot_simulation(t, phi_history):
     """
     plt.figure(figsize=(10, 6))
     for i in range(phi_history.shape[1]):
-        plt.plot(t, phi_history[:, i], label=f'Oscillator {i+1}')
+        plt.plot(t, phi_history[:, i], label=f'Oscillator {i+1}', linestyle = '--', 
+                 marker = 'o', alpha = 0.7, markerfacecolor= 'none', markersize=4)
     plt.xlabel(r'Time ($t$, seconds)')
     plt.ylabel(r'Phase ($\phi$, radians)')
     plt.title('Synthetic Oscillatory Dynamics')
     plt.legend()
     plt.show()
 
-# if __name__ == '__main__':
-#     t, phi_history = run_simulation()
-#     plot_simulation(t, phi_history)
+if __name__ == '__main__':
+    t, phi_history = run_simulation()
+    plot_simulation(t, phi_history)
 
 # # Run the simulation and plot the results
 # if __name__ == '__main__':
