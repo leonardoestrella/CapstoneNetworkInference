@@ -10,7 +10,7 @@ t_vals, phi_vals = generate_synthetic_data.run_simulation(plot_data = True)
 
 # Inferring the coefficient
 
-r = 4 # number of terms in fourier series
+r = 5 # number of terms in fourier series
 N = phi_vals.shape[1]  # number of nodes
 
 # backward inference

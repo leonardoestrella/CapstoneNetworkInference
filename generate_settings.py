@@ -24,7 +24,7 @@ N = 5
 phi = np.random.uniform(-np.pi,np.pi, N)
 
 w = np.random.uniform(-np.pi/2,np.pi/2,N)
-#print(w)
+
 #w = np.array([2.63 - np.pi/2 ,0.97 - np.pi/2, 2.4 - np.pi/2])
 
 # bounds for the compact set
