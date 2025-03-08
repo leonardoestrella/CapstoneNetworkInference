@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from generate_synthetic_data import wrap_to_value
+from generate_settings import left_bound, right_bound
 
 def infer_node_dynamics(phi_history, t, r, node_idx, method='backward'):
     """
@@ -99,10 +101,14 @@ def infer_node_dynamics(phi_history, t, r, node_idx, method='backward'):
     # ------------------------------------------------------------------------
     x_sol, residuals, rank, svals = np.linalg.lstsq(A, y_data, rcond=None)
     
-    # wrap the solutions, as they should be in the interval [0,2 pi] by how
-    # we defined the range in which data are
+    # wrap the solutions, as they should be in the interval [left_bound,right_bound]
+    # function imported from generate_synthetic_data.py and bounds from generate_settings.py
 
-    x_sol = x_sol % (2*np.pi) # sus, to be honest
+    #constant_term = x_sol[0] 
+    #wrap_constant = wrap_to_value(constant_term,-np.pi,np.pi)
+    x_sol = wrap_to_value(x_sol, left_bound,right_bound) # sus, to be honest
+    #x_sol[0] = wrap_constant # sus, to be honest
+    x_sol[0] = wrap_to_value(x_sol[0],-np.pi,np.pi)
 
     return x_sol, residuals
 

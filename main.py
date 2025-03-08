@@ -18,6 +18,7 @@ inferred_natural, inferred_couplings = inference.infer_all_nodes(phi_vals, t_val
 true_natural, true_couplings = generate_synthetic_data.prepare_comparison_trues()
 
 # plotting natural and coupling
+# Values are wrapped in inference.py!
 
 inference.plot_natural_frequencies(true_natural,inferred_natural)
 inference.plot_coupling_strengths(true_couplings,inferred_couplings)
